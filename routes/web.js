@@ -1,11 +1,13 @@
 const express = require("express");
 const router = express.Router();
 const Contact = require("../model/contactmodel");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 
 // ==========================
-// Common Function (Register/Create)
+// Register
 // ==========================
-const createUser = async (req, res) => {
+router.post("/register", async (req, res) => {
   try {
     const { name, email, password, phoneno, city, address } = req.body;
 
@@ -25,39 +27,36 @@ const createUser = async (req, res) => {
       });
     }
 
+    // Hash Password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
     const newUser = new Contact({
       name,
       email,
-      password,
-      phoneno: phoneno || "",
-      city: city || "",
-      address: address || "",
+      password: hashedPassword,
+      phoneno,
+      city,
+      address,
     });
 
     await newUser.save();
 
-    return res.status(201).json({
+    res.status(201).json({
       success: true,
-      message: "Contact Saved Successfully",
-      user: newUser,
+      message: "Registration Successful",
+      user: {
+        id: newUser._id,
+        name: newUser.name,
+        email: newUser.email,
+      },
     });
   } catch (error) {
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: error.message,
     });
   }
-};
-
-// ==========================
-// Register
-// ==========================
-router.post("/register", createUser);
-
-// ==========================
-// Create Contact
-// ==========================
-router.post("/create", createUser);
+});
 
 // ==========================
 // Login
@@ -68,16 +67,33 @@ router.post("/login", async (req, res) => {
 
     const user = await Contact.findOne({ email });
 
-    if (!user || user.password !== password) {
+    if (!user) {
       return res.status(400).json({
         success: false,
         message: "Invalid Email or Password",
       });
     }
 
-    return res.status(200).json({
+    const isMatch = await bcrypt.compare(password, user.password);
+
+    if (!isMatch) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid Email or Password",
+      });
+    }
+
+    // Generate JWT Token
+    const token = jwt.sign(
+      { id: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" }
+    );
+
+    res.status(200).json({
       success: true,
       message: "Login Successful",
+      token,
       user: {
         id: user._id,
         name: user.name,
@@ -88,7 +104,28 @@ router.post("/login", async (req, res) => {
       },
     });
   } catch (error) {
-    return res.status(500).json({
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+// ==========================
+// Create Contact
+// ==========================
+router.post("/create", async (req, res) => {
+  try {
+    const contact = new Contact(req.body);
+    await contact.save();
+
+    res.status(201).json({
+      success: true,
+      message: "Contact Created Successfully",
+      contact,
+    });
+  } catch (error) {
+    res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -101,7 +138,11 @@ router.post("/login", async (req, res) => {
 router.get("/contact-list", async (req, res) => {
   try {
     const contacts = await Contact.find();
-    res.status(200).json(contacts);
+
+    res.status(200).json({
+      success: true,
+      contacts,
+    });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -124,7 +165,10 @@ router.get("/find-by/:id", async (req, res) => {
       });
     }
 
-    res.status(200).json(contact);
+    res.status(200).json({
+      success: true,
+      contact,
+    });
   } catch (error) {
     res.status(500).json({
       success: false,
